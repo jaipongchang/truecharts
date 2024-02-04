@@ -15,6 +15,21 @@ alpineImage:
   tag: latest
   pullPolicy: IfNotPresent
 
+wazuh:
+  credentials:
+    # Only works on initial install
+    username: username
+    password: my-password
+  outposts:
+    indexer:
+      enabled: true
+      username: ""
+      password: ""
+    manager:
+      enabled: true
+      username: ""
+      password: ""
+
 service:
   main:
     enabled: true
@@ -23,7 +38,7 @@ service:
     ports:
       main:
         enabled: true
-        port: 443
+        port: 5601
         protocol: tcp
         targetPort: 5601
         targetSelector: main
@@ -107,6 +122,28 @@ workload:
             ls -la /wazuh-dashboard-certs/ && \
             echo "Manager:"
             ls -la /wazuh-manager-certs/
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+        store-credentials-hash-as-secret:
+          enabled: true
+          imageSelector: indexerImage
+          type: init
+          command: 
+          - "/bin/bash"
+          - "-c"
+          - |
+            spawn /usr/share/wazuh-indexer/plugins/opensearch-security/tools/hash.sh
+            expect "Enter password:"
+            send "SecretPassword\n"
+            sleep 1
+            log_file manager-hash
+            expect eof
           securityContext:
             runAsUser: 1000
             runAsGroup: 1000
@@ -244,6 +281,19 @@ workload:
               type: tcp
 
 persistence:
+
+  test:
+    enabled: true
+    noMount: true
+    type: secret
+    objectName: root-ca
+    subPath: tls.crt
+    defaultMode: "0600"
+    readOnly: false
+    targetSelector:
+      main:
+        change-secret-file-owner:
+          mountPath: /bad-ownership-cert/root-ca.pem
 
 # PVC
 # WAZUH-INDEXER

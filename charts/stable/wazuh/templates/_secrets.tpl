@@ -136,8 +136,8 @@ secret:
         - 1513629884013:
             url: "https://{{ $managerUrl }}"
             port: 55000
-            username: wazuh-wui
-            password: "MyS3cr37P450r.*-"
+            username: {{ .Values.wazuh.outposts.manager.username | quote }}
+            password: {{ .Values.wazuh.outposts.manager.password | quote }}
             run_as: false
 configmap:
   indexer:
