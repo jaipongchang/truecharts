@@ -1,0 +1,477 @@
+# Include{groups}
+portals:
+  open:
+# Include{portalLink}
+questions:
+# Include{global}
+# Include{workload}
+# Include{workloadDeployment}
+# Include{replicas1}
+# Include{podSpec}
+# Include{containerMain}
+# Include{containerBasic}
+# Include{containerAdvanced}
+  - variable: wazuh
+    group: App Configuration
+    label: Wazuh Configuration
+    schema:
+      additional_attrs: true
+      type: dict
+      attrs:
+        - variable: credentials
+          label: Credentials
+          schema:
+            additional_attrs: true
+            type: dict
+            attrs:
+              - variable: username
+                label: Username
+                description: |
+                  Set the default username for the dashboard user.</br>
+                  Only read on initial install, changing this will have no effect.
+                schema:
+                  type: string
+                  required: true
+                  immutable: true
+                  default: ""
+              - variable: password
+                label: Password
+                description: |
+                  Set the default password for the dashboard user.</br>
+                  Only read on initial install, changing this will have no effect.
+                schema:
+                  type: string
+                  private: true
+                  required: true
+                  immutable: true
+                  default: ""
+        - variable: email
+          label: Email
+          schema:
+            additional_attrs: true
+            type: dict
+            attrs:
+              - variable: host
+                label: Mail Server Host
+                description: Sets host of mail server
+                schema:
+                  type: string
+                  default: ""
+              - variable: port
+                label: Mail Server Port
+                description: Sets port of mail server
+                schema:
+                  type: int
+                  default: 587
+              - variable: username
+                label: Username
+                description: Sets username of mail server
+                schema:
+                  type: string
+                  default: ""
+              - variable: password
+                label: Password
+                description: Sets password of mail server
+                schema:
+                  type: string
+                  private: true
+                  default: ""
+              - variable: useTLS
+                label: Use TLS for authentication
+                description: Sets TLS for mail server authentication
+                schema:
+                  type: boolean
+                  default: true
+              - variable: useSSL
+                label: Use SSL for authentication
+                description: Sets SSL for mail server authentication
+                schema:
+                  type: boolean
+                  default: false
+              - variable: timeout
+                label: Timeout of authentication
+                description: Sets timeout for mail server authentication
+                schema:
+                  type: int
+                  default: 10
+              - variable: from
+                label: From Address
+                description: Email address authentik will send from
+                schema:
+                  type: string
+                  default: ""
+        - variable: outposts
+          label: Outposts
+          schema:
+            additional_attrs: true
+            type: dict
+            attrs:
+              - variable: indexer
+                label: Indexer
+                schema:
+                  additional_attrs: true
+                  type: dict
+                  attrs:
+                    - variable: enabled
+                      label: Enabled
+                      description: |
+                        Enables and configures the Indexer container.</br>
+                        This will deploy the Indexer container.</br>
+                        <b>Notes:</b> The Indexer container is required for Wazuh to work properly.</br>
+                        Do not disable it unless you know what you're doing.
+                      schema:
+                        type: boolean
+                        default: true
+                        show_subquestions_if: true
+                        subquestions:
+                          - variable: username
+                            label: Username
+                            description: |
+                              Set the default username for the indexer user.</br>
+                              Only read on initial install, changing this will have no effect.
+                            schema:
+                              type: string
+                              required: true
+                              immutable: true
+                              default: ""
+                          - variable: password
+                            label: Password
+                            description: |
+                              Set the default password for the indexer user.</br>
+                              Only read on initial install, changing this will have no effect.
+                            schema:
+                              type: string
+                              private: true
+                              required: true
+                              immutable: true
+                              default: ""
+              - variable: manager
+                label: Manager
+                schema:
+                  additional_attrs: true
+                  type: dict
+                  attrs:
+                    - variable: enabled
+                      label: Enabled
+                      description: |
+                        Enables and configures the Manager container.</br>
+                        This will deploy the Indexer container.</br>
+                        <b>Notes:</b> The Manager container is required for Wazuh to work properly.</br>
+                        Do not disable it unless you know what you're doing.
+                      schema:
+                        type: boolean
+                        default: true
+                        show_subquestions_if: true
+                        subquestions:
+                          - variable: username
+                            label: Username
+                            description: |
+                              Set the default username for the API user.</br>
+                              Only read on initial install, changing this will have no effect.
+                            schema:
+                              type: string
+                              required: true
+                              immutable: true
+                              default: ""
+                          - variable: password
+                            label: Password
+                            description: |
+                              Set the default password for the API user.</br>
+                              Only read on initial install, changing this will have no effect.
+                            schema:
+                              type: string
+                              private: true
+                              required: true
+                              immutable: true
+                              default: ""
+# Include{containerConfig}
+# Include{podOptions}
+# Include{serviceRoot}
+        - variable: main
+          label: Main Service
+          description: The Primary service on which the healthcheck runs, often the webUI
+          schema:
+            additional_attrs: true
+            type: dict
+            attrs:
+# Include{serviceSelectorLoadBalancer}
+# Include{serviceSelectorExtras}
+                    - variable: main
+                      label: Dashboard Service Port Configuration
+                      schema:
+                        additional_attrs: true
+                        type: dict
+                        attrs:
+                          - variable: port
+                            label: Port
+                            description: This port exposes the container port on the service
+                            schema:
+                              type: int
+                              default: 5601
+                              required: true
+        - variable: indexer
+          label: Indexer Service
+          description: The Indexer service.
+          schema:
+            additional_attrs: true
+            type: dict
+            attrs:
+# Include{serviceSelectorLoadBalancer}
+# Include{serviceSelectorExtras}
+                    - variable: indexer
+                      label: Indexer RESTful API Service Port Configuration
+                      schema:
+                        additional_attrs: true
+                        type: dict
+                        attrs:
+                          - variable: port
+                            label: Port
+                            description: This port exposes the container port on the service
+                            schema:
+                              type: int
+                              default: 9200
+                              required: true
+        - variable: manager
+          label: Manager Service
+          description: The Manager service.
+          schema:
+            additional_attrs: true
+            type: dict
+            attrs:
+# Include{serviceSelectorLoadBalancer}
+# Include{serviceSelectorExtras}
+                    - variable: agent-connect
+                      label: Agent Connection Service Port Configuration
+                      schema:
+                        additional_attrs: true
+                        type: dict
+                        attrs:
+                          - variable: port
+                            label: Port
+                            description: This port exposes the container port on the service
+                            schema:
+                              type: int
+                              default: 1514
+                              required: true
+                    - variable: agent-enroll
+                      label: Agent Enrollment Service Port Configuration
+                      schema:
+                        additional_attrs: true
+                        type: dict
+                        attrs:
+                          - variable: port
+                            label: Port
+                            description: This port exposes the container port on the service
+                            schema:
+                              type: int
+                              default: 1515
+                              required: true
+                    - variable: syslog-collect
+                      label: Syslog Collector Service Port Configuration
+                      schema:
+                        additional_attrs: true
+                        type: dict
+                        attrs:
+                          - variable: port
+                            label: Port
+                            description: This port exposes the container port on the service
+                            schema:
+                              type: int
+                              default: 514
+                              required: true
+                    - variable: api
+                      label: server RESTful API Service Port Configuration
+                      schema:
+                        additional_attrs: true
+                        type: dict
+                        attrs:
+                          - variable: port
+                            label: Port
+                            description: This port exposes the container port on the service
+                            schema:
+                              type: int
+                              default: 55000
+                              required: true
+# Include{serviceExpertRoot}
+# Include{serviceExpert}
+# Include{serviceList}
+# Include{persistenceRoot}
+        - variable: indexer
+          label: Indexer Storage
+          description: Stores the Indexer Data.
+          schema:
+            additional_attrs: true
+            type: dict
+            attrs:
+# Include{persistenceBasic}
+        - variable: indexer-certs
+          label: Indexer Certificates Storage
+          description: Stores the Indexer's Certificates.
+          schema:
+            additional_attrs: true
+            type: dict
+            attrs:
+# Include{persistenceBasic}
+        - variable: dashboard-config
+          label: Dashboard Configuration Storage
+          description: Stores the Dashboard Configuration Files.
+          schema:
+            additional_attrs: true
+            type: dict
+            attrs:
+# Include{persistenceBasic}
+        - variable: dashboard-custom
+          label: Dashboard Custom Storage
+          description: Stores the Dashboard Custom.
+          schema:
+            additional_attrs: true
+            type: dict
+            attrs:
+# Include{persistenceBasic}
+        - variable: dashboard-certs
+          label: Dashboard Certificates Storage
+          description: Stores the Dashboard's Certificates.
+          schema:
+            additional_attrs: true
+            type: dict
+            attrs:
+# Include{persistenceBasic}
+        - variable: manager-certs
+          label: Manager Certificates Storage
+          description: Stores the Manager's Certificates.
+          schema:
+            additional_attrs: true
+            type: dict
+            attrs:
+# Include{persistenceBasic}
+        - variable: manager-api-configuration
+          label: Manager API Configuration Storage
+          description: Stores the Manager's API Configuration.
+          schema:
+            additional_attrs: true
+            type: dict
+            attrs:
+# Include{persistenceBasic}
+        - variable: manager-etc
+          label: Manager etc Storage
+          description: Stores the Manager's ossec/etc folder.
+          schema:
+            additional_attrs: true
+            type: dict
+            attrs:
+# Include{persistenceBasic}
+        - variable: manager-logs
+          label: Manager Logs Storage
+          description: Stores the Manager's Logs.
+          schema:
+            additional_attrs: true
+            type: dict
+            attrs:
+# Include{persistenceBasic}
+        - variable: manager-queue
+          label: Manager Queue Storage
+          description: Stores the Manager's Queue Folder.
+          schema:
+            additional_attrs: true
+            type: dict
+            attrs:
+# Include{persistenceBasic}
+        - variable: manager-var-multigroups
+          label: Manager Multigroups Storage
+          description: Stores the Manager's Multigroups.
+          schema:
+            additional_attrs: true
+            type: dict
+            attrs:
+# Include{persistenceBasic}
+        - variable: manager-integrations
+          label: Manager Integrations Storage
+          description: Stores the Manager's Integrations.
+          schema:
+            additional_attrs: true
+            type: dict
+            attrs:
+# Include{persistenceBasic}
+        - variable: manager-active-response
+          label: Manager Active Response Binary Storage
+          description: Stores the Manager's Active Response Binary.
+          schema:
+            additional_attrs: true
+            type: dict
+            attrs:
+# Include{persistenceBasic}
+        - variable: manager-agentless
+          label: Manager Agentless Storage
+          description: Stores the Manager's Agentless.
+          schema:
+            additional_attrs: true
+            type: dict
+            attrs:
+# Include{persistenceBasic}
+        - variable: manager-wodles
+          label: Manager Wodles Storage
+          description: Stores the Manager's Wodles.
+          schema:
+            additional_attrs: true
+            type: dict
+            attrs:
+# Include{persistenceBasic}
+        - variable: manager-filebeat-etc
+          label: Manager Filebeat etc Storage
+          description: Stores the Manager's Filebeat etc.
+          schema:
+            additional_attrs: true
+            type: dict
+            attrs:
+# Include{persistenceBasic}
+        - variable: manager-filebeat-var
+          label: Manager Filebeat var Storage
+          description: Stores the Manager's Filebeat var.
+          schema:
+            additional_attrs: true
+            type: dict
+            attrs:
+# Include{persistenceBasic}
+# Include{persistenceList}
+# Include{ingressRoot}
+        - variable: main
+          label: Main (HTTPS) Ingress
+          schema:
+            additional_attrs: true
+            type: dict
+            attrs:
+# Include{ingressDefault}
+# Include{ingressAdvanced}
+# Include{ingressList}
+# Include{securityContextRoot}
+              - variable: runAsUser
+                label: runAsUser
+                description: The UserID of the user running the application
+                schema:
+                  type: int
+                  default: 1000
+              - variable: runAsGroup
+                label: runAsGroup
+                description: The groupID of the user running the application
+                schema:
+                  type: int
+                  default: 1000
+# Include{securityContextContainer}
+# Include{securityContextAdvanced}
+# Include{securityContextPod}
+              - variable: fsGroup
+                label: fsGroup
+                description: The group that should own ALL storage.
+                schema:
+                  type: int
+                  default: 1000
+# Include{resources}
+# Include{postgresql}
+# Include{metrics}
+# Include{prometheusRule}
+# Include{advanced}
+# Include{addons}
+# Include{codeserver}
+# Include{netshoot}
+# Include{vpn}
+# Include{documentation}

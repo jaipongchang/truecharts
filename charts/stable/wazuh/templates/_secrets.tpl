@@ -40,38 +40,39 @@ secret:
     enabled: true
     type: kubernetes.io/tls
     data:
-      tls.key: {{ $rootCA.Key | b64enc | quote }}
-      tls.crt: {{ $rootCA.Cert | b64enc | quote }}
+      tls.key: {{ $rootCA.Key | quote }}
+      tls.crt: {{ $rootCA.Cert | quote }}
 
   admin-cert:
     enabled: true
     type: kubernetes.io/tls
     data:
-      tls.key: {{ $adminCert.Key | b64enc | quote }}
-      tls.crt: {{ $adminCert.Cert | b64enc | quote }}
+      tls.key: {{ $adminCert.Key | quote }}
+      tls.crt: {{ $adminCert.Cert | quote }}
 
   node-cert:
     enabled: true
     type: kubernetes.io/tls
     data:
-      tls.key: {{ $nodeCert.Key | b64enc | quote }}
-      tls.crt: {{ $nodeCert.Cert | b64enc | quote }}
+      tls.key: {{ $nodeCert.Key | quote }}
+      tls.crt: {{ $nodeCert.Cert | quote }}
 
   dashboard-cert:
     enabled: true
     type: kubernetes.io/tls
     data:
-      tls.key: {{ $dashboardCert.Key | b64enc | quote }}
-      tls.crt: {{ $dashboardCert.Cert | b64enc | quote }}
+      tls.key: {{ $dashboardCert.Key | quote }}
+      tls.crt: {{ $dashboardCert.Cert | quote }}
 
   filebeat-cert:
     enabled: true
     type: kubernetes.io/tls
     data:
-      tls.key: {{ $filebeatCert.Key | b64enc | quote }}
-      tls.crt: {{ $filebeatCert.Cert | b64enc | quote }}
+      tls.key: {{ $filebeatCert.Key | quote }}
+      tls.crt: {{ $filebeatCert.Cert | quote }}
 
-  config:
+configmap:
+  indexer:
     enabled: true
     data:
       internal_users.yml: |
@@ -131,18 +132,6 @@ secret:
           backend_roles:
           - "snapshotrestore"
           description: "Demo snapshotrestore user"
-      wazuh.yml: |
-        hosts:
-        - 1513629884013:
-            url: "https://{{ $managerUrl }}"
-            port: 55000
-            username: {{ .Values.wazuh.outposts.manager.username | quote }}
-            password: {{ .Values.wazuh.outposts.manager.password | quote }}
-            run_as: false
-configmap:
-  indexer:
-    enabled: true
-    data:
       wazuh.indexer.yml: |
         network.host: "0.0.0.0"
         node.name: "{{ $indexerUrl }}"
@@ -177,6 +166,14 @@ configmap:
   dashboard:
     enabled: true
     data:
+      wazuh.yml: |
+        hosts:
+        - 1513629884013:
+            url: "https://{{ $managerUrl }}"
+            port: 55000
+            username: {{ .Values.wazuh.outposts.manager.username | quote }}
+            password: {{ .Values.wazuh.outposts.manager.password | quote }}
+            run_as: false
       opensearch_dashboards.yml: |
         server.host: 0.0.0.0
         server.port: 5601

@@ -14,21 +14,25 @@ alpineImage:
   repository: alpine
   tag: latest
   pullPolicy: IfNotPresent
+codeserverImage:
+  repository: docker.io/codercom/code-server
+  pullPolicy: IfNotPresent
+  tag: 4.20.1@sha256:94e705de31ca2e6d0c28fec83f004c4159c037338c485ca0b60bba7e90bde8f9
 
 wazuh:
   credentials:
     # Only works on initial install
-    username: username
-    password: my-password
+    username: "kibanaserver"
+    password: "kibanaserver"
   outposts:
     indexer:
       enabled: true
-      username: ""
-      password: ""
+      username: "admin"
+      password: "SecretPassword"
     manager:
       enabled: true
-      username: ""
-      password: ""
+      username: "wazuh-wui"
+      password: "MyS3cr37P450r.*-"
 
 service:
   main:
@@ -38,7 +42,7 @@ service:
     ports:
       main:
         enabled: true
-        port: 5601
+        port: 443
         protocol: tcp
         targetPort: 5601
         targetSelector: main
@@ -84,6 +88,12 @@ service:
         protocol: tcp
         targetPort: 55000
         targetSelector: manager
+      codeserver:
+        enabled: true
+        port: 10063
+        protocol: http
+        targetPort: 8080
+        targetSelector: codeserver
 
 workload:
   main:
@@ -91,6 +101,7 @@ workload:
     type: Deployment
     strategy: RollingUpdate
     replicas: 1
+    primary: true
     podSpec:
       initContainers:
         change-secret-file-owner:
@@ -101,81 +112,109 @@ workload:
           - "/bin/sh"
           - "-c"
           - |
-            mkdir -p /tmp/certs && \
-            cp -r /bad-ownership-cert/* /tmp/certs && \
-            chown -R 1000:1000 /tmp/certs && \
-            base64 -d "/tmp/certs/root-ca.pem" > "/wazuh-dashboard-certs/root-ca.pem" && \
-            base64 -d "/tmp/certs/root-ca.pem" > "/wazuh-indexer-certs/root-ca.pem" && \
-            base64 -d "/tmp/certs/root-ca.pem" > "/wazuh-manager-certs/root-ca.pem" && \
-            for file in /tmp/certs/indexer/*; do \
-              base64 -d "$file" > "/wazuh-indexer-certs/$(basename "$file")"; \
-            done && \
-            for file in /tmp/certs/dashboard/*; do \
-              base64 -d "$file" > "/wazuh-dashboard-certs/$(basename "$file")"; \
-            done && \
-            for file in /tmp/certs/manager/*; do \
-              base64 -d "$file" > "/wazuh-manager-certs/$(basename "$file")"; \
-            done && \
-            echo "Indexer:"
+            mkdir -p /tmp/wazuh/certs
+            cp -r /bad-ownership-cert/* /tmp/wazuh/certs
+
+            chown -R 1000:1000 /tmp/wazuh/certs
+
+            # Set UMASK so newly created file will have permissions 400
+            umask 377
+
+            # Source directory
+            source_dir="/tmp/wazuh/certs"
+
+            # Destination directories
+            destinations="/wazuh-indexer-certs /wazuh-dashboard-certs /wazuh-manager-certs"
+            
+            for dest in $destinations; 
+            do 
+              # Extract the second word using cut and store it in a variable
+              service=$(echo "${dest}" | cut -d'-' -f2)
+
+              # Write root-ca
+              cat "${source_dir}/general/root-ca.pem" > "${dest}/root-ca.pem" ; 
+
+              find "${source_dir}/${service}" -type f -exec sh -c 'cat "$0" > "/wazuh-${1}-certs/$(basename "$0")"' {} "$service" \;
+            done
+
+            # Set UMASK so newly created file will have permissions 400
+            umask 077
+
+            mkdir -p /tmp/wazuh/conf
+            cp -r /bad-ownership-conf/* /tmp/wazuh/conf
+
+            chown -R 1000:1000 /tmp/wazuh/conf
+
+            # Set UMASK so newly created file will have permissions 400
+            umask 177
+
+            ls -la /tmp/wazuh
+            ls -la /tmp/wazuh/conf
+            ls -la /tmp/wazuh/conf/*
+
+            # Source directory
+            source_dir="/tmp/wazuh/conf"
+
+            # Destination directories
+            destinations="/wazuh-indexer-conf /wazuh-dashboard-conf /wazuh-manager-conf"
+            
+            for dest in $destinations; 
+            do 
+              # Extract the second word using cut and store it in a variable
+              service=$(echo "${dest}" | cut -d'-' -f2)
+
+              find "${source_dir}/${service}" -type f -exec sh -c 'cat "$0" > "/wazuh-${1}-conf/$(basename "$0")"' {} "$service" \;
+            done
+
+            echo "Indexer:" && \
+            echo "    Cert:" && \
             ls -la /wazuh-indexer-certs/ && \
-            echo "Dashboard:"
+
+            echo "Dashboard:" && \
+            echo "    Cert:" && \
             ls -la /wazuh-dashboard-certs/ && \
-            echo "Manager:"
+
+            echo "Manager:" && \
+            echo "    Cert:" && \
             ls -la /wazuh-manager-certs/
           securityContext:
             runAsUser: 1000
             runAsGroup: 1000
             runAsNonRoot: true
             readOnlyRootFilesystem: false
-            capabilities:
-              drop:
-                - ALL
-        store-credentials-hash-as-secret:
-          enabled: true
-          imageSelector: indexerImage
-          type: init
-          command: 
-          - "/bin/bash"
-          - "-c"
-          - |
-            spawn /usr/share/wazuh-indexer/plugins/opensearch-security/tools/hash.sh
-            expect "Enter password:"
-            send "SecretPassword\n"
-            sleep 1
-            log_file manager-hash
-            expect eof
-          securityContext:
-            runAsUser: 1000
-            runAsGroup: 1000
-            runAsNonRoot: true
-            readOnlyRootFilesystem: false
-            capabilities:
-              drop:
-                - ALL
+            fsGroup: 1000
       containers:
         main:
           enabled: true
           primary: true
           imageSelector : dashboardImage
-          envList:
-            - name: INDEXER_USERNAME
-              value: admin
-            - name: INDEXER_PASSWORD
-              value: 'SecretPassword'
-            - name: WAZUH_API_URL
-              value: https://{{- printf "%v-manager.%v.svc.cluster.local" (include "tc.v1.common.lib.chart.names.fullname" $) (include "tc.v1.common.lib.metadata.namespace" (dict "rootCtx" $ "objectData" . "caller" "Configmap")) -}}
-            - name: DASHBOARD_USERNAME
-              value: kibanaserver
-            - name: DASHBOARD_PASSWORD
-              value: kibanaserver
-            - name: API_USERNAME
-              value: wazuh-wui
-            - name: API_PASSWORD
-              value: 'MyS3cr37P450r.*-'
+          command: 
+          - "/bin/sh"
+          - "-c"
+          - |
+            id
+            ls -la /wazuh-config
+            ln -sf /wazuh-config/opensearch_dashboards.yml /usr/share/wazuh-dashboard/config/opensearch_dashboards.yml
+            ln -sf /wazuh-config/wazuh.yml /usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml
+            ls -la /
+            ls -la /usr/share/wazuh-dashboard/data/wazuh/config
+            ls -la /usr/share/wazuh-dashboard/config
+            cat /usr/share/wazuh-dashboard/config/opensearch_dashboards.yml
+            cat /usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml
+            /entrypoint.sh
+          env:
+            INDEXER_USERNAME: admin
+            INDEXER_PASSWORD: 'SecretPassword'
+            WAZUH_API_URL: https://{{- printf "%v-manager.%v.svc.cluster.local" (include "tc.v1.common.lib.chart.names.fullname" $) (include "tc.v1.common.lib.metadata.namespace" (dict "rootCtx" $ "objectData" . "caller" "Configmap")) -}}
+            DASHBOARD_USERNAME: "{{ .Values.wazuh.credentials.username }}"
+            DASHBOARD_PASSWORD: "{{ .Values.wazuh.credentials.password }}"
+            API_USERNAME: "{{ .Values.wazuh.outposts.manager.username }}"
+            API_PASSWORD: "{{ .Values.wazuh.outposts.manager.password }}"
           securityContext:
             runAsUser: 1000
             runAsGroup: 1000
             runAsNonRoot: true
+            # fsGroup: 1000
             readOnlyRootFilesystem: false
             capabilities:
               drop:
@@ -197,11 +236,60 @@ workload:
     strategy: RollingUpdate
     replicas: 1
     podSpec:
+      # initContainers:
+      #   set-password-hash:
+      #     enabled: true
+      #     imageSelector: indexerImage
+      #     type: init
+      #     command: 
+      #     - "/bin/bash"
+      #     - "-c"
+      #     - |
+      #       chmod +x /usr/share/wazuh-indexer/plugins/opensearch-security/tools/hash.sh 
+      #       export JAVA_HOME=/usr/share/wazuh-indexer/jdk
+
+      #       cat <<EOF > /wazuh-config/internal_users.yml
+
+      #       {{ .Values.wazuh.outposts.indexer.username }}:
+      #           hash: "$(echo $(bash /usr/share/wazuh-indexer/plugins/opensearch-security/tools/hash.sh -p "{{ .Values.wazuh.outposts.indexer.password }}") | awk '{print $NF}')"
+      #           reserved: true
+      #           backend_roles:
+      #           - "admin"
+      #           description: "Default admin user"
+
+      #       {{ .Values.wazuh.credentials.username }}:
+      #           hash: "$(echo $(bash /usr/share/wazuh-indexer/plugins/opensearch-security/tools/hash.sh -p "{{ .Values.wazuh.credentials.password }}") | awk '{print $NF}')"
+      #           reserved: true
+      #           backend_roles:
+      #           - "admin"
+      #           description: "Default admin user"
+      #       EOF
+      #     securityContext:
+      #       runAsUser: 0
+      #       runAsGroup: 1000
+      #       runAsNonRoot: true
+      #       readOnlyRootFilesystem: false
+      #       capabilities:
+      #         drop:
+      #           - ALL
       containers:
         indexer:
           enabled: true
           primary: true
           imageSelector : indexerImage
+          command: 
+          - "/bin/sh"
+          - "-c"
+          - |
+            id
+            ls -la /wazuh-config
+            ln -sf /wazuh-config/opensearch.yml /usr/share/wazuh-indexer/opensearch.yml
+            ln -sf /wazuh-config/internal_users.yml /usr/share/wazuh-indexer/opensearch-security/internal_users.yml
+            ls -la /
+            ls -la /usr/share/
+            ls -la /usr/share/wazuh-indexer/
+            ls -la /usr/share/wazuh-indexer/opensearch-security
+            /entrypoint.sh
           envList:
             - name: OPENSEARCH_JAVA_OPTS
               value: -Xms1024m -Xmx1024m
@@ -210,6 +298,7 @@ workload:
           securityContext:
             runAsUser: 1000
             runAsGroup: 1000
+            fsGroup: 1000
             runAsNonRoot: true
             readOnlyRootFilesystem: false
             capabilities:
@@ -236,28 +325,27 @@ workload:
           enabled: true
           primary: true
           imageSelector : managerImage
-          envList:
-            - name: INDEXER_URL
-              value: https://{{- printf "%v-indexer.%v.svc.cluster.local" (include "tc.v1.common.lib.chart.names.fullname" $) (include "tc.v1.common.lib.metadata.namespace" (dict "rootCtx" $ "objectData" . "caller" "Configmap")) -}}:9200
-            - name: INDEXER_USERNAME
-              value: admin
-            - name: INDEXER_PASSWORD
-              value: 'SecretPassword'
-            - name: FILEBEAT_SSL_VERIFICATION_MODE
-              value: full
-            - name: SSL_CERTIFICATE_AUTHORITIES
-              value: /etc/ssl/root-ca.pem
-            - name: SSL_CERTIFICATE
-              value: /etc/ssl/filebeat.pem
-            - name: SSL_KEY
-              value: /etc/ssl/filebeat.key
-            - name: API_USERNAME
-              value: wazuh-wui
-            - name: API_PASSWORD
-              value: 'MyS3cr37P450r.*-'
+          env:
+            # PUID : "{{ .Values.securityContext.container.runAsUser }}"
+            # USER_ID : "{{ .Values.securityContext.container.runAsUser }}"
+            # UID : "{{ .Values.securityContext.container.runAsUser }}"
+            # PGID : "{{ .Values.securityContext.container.runAsGroup }}"
+            # GROUP_ID : "{{ .Values.securityContext.container.runAsGroup }}"
+            # GID : "{{ .Values.securityContext.container.runAsGroup }}"
+            INDEXER_URL: https://{{- printf "%v-indexer.%v.svc.cluster.local" (include "tc.v1.common.lib.chart.names.fullname" $) (include "tc.v1.common.lib.metadata.namespace" (dict "rootCtx" $ "objectData" . "caller" "Configmap")) -}}:9200
+            INDEXER_USERNAME: "{{ .Values.wazuh.outposts.indexer.username }}"
+            INDEXER_PASSWORD: "{{ .Values.wazuh.outposts.indexer.password }}"
+            FILEBEAT_SSL_VERIFICATION_MODE: full
+            SSL_CERTIFICATE_AUTHORITIES: /etc/ssl/root-ca.pem
+            SSL_CERTIFICATE: /etc/ssl/filebeat.pem
+            SSL_KEY: /etc/ssl/filebeat.key
+            API_USERNAME: "{{ .Values.wazuh.outposts.manager.username }}"
+            API_PASSWORD: "{{ .Values.wazuh.outposts.manager.password }}"
           # args: 
-          #   - "--ulimit memlock=-1:-1"
-          #   - "--ulimit nofile=655360:655360"
+          #   - "--ulimit" 
+          #   - "memlock=-1:-1"
+          #   - "--ulimit" 
+          #   - "nofile=655360:655360"
           securityContext:
             runAsUser: 0
             runAsGroup: 1000
@@ -279,47 +367,106 @@ workload:
             startup:
               enabled: false
               type: tcp
-
+        codeserver:
+          enabled: true
+          primary: false
+          imageSelector : codeserverImage
+          env:
+            PROXY_DOMAIN: ""
+          args:
+            - --user-data-dir
+            - "/config/.vscode"
+            - --auth
+            - none
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 1000
+            runAsNonRoot: true
+            readOnlyRootFilesystem: false
+          probes:
+            liveness:
+              enabled: false
+              type: tcp
+            readiness:
+              enabled: false
+              type: tcp
+            startup:
+              enabled: false
+              type: tcp
 persistence:
 
-  test:
+  config:
     enabled: true
-    noMount: true
-    type: secret
-    objectName: root-ca
-    subPath: tls.crt
-    defaultMode: "0600"
-    readOnly: false
+    mountPath: /config
     targetSelector:
-      main:
-        change-secret-file-owner:
-          mountPath: /bad-ownership-cert/root-ca.pem
+      manager:
+        codeserver:
+          mountPath: "/var/lib/wazuh-indexer"
+  # test:
+  #   enabled: true
+  #   noMount: true
+  #   type: secret
+  #   objectName: root-ca
+  #   subPath: tls.crt
+  #   defaultMode: "0400"
+  #   readOnly: false
+  #   targetSelector:
+  #     main:
+  #       change-secret-file-owner:
+  #         mountPath: /bad-ownership-cert/root-ca.pem
 
 # PVC
 # WAZUH-INDEXER
   indexer:
     enabled: true
+    readOnly: false
     defaultMode: "0600"
     targetSelector:
       indexer:
         indexer:
           mountPath: "/var/lib/wazuh-indexer"
 
-  indexer-certs:
+  indexer-opensearch-conf:
     enabled: true
     readOnly: false
-    defaultMode: "0600"
+    noMount: true
     targetSelector:
       indexer:
         indexer:
-          mountPath: /usr/share/wazuh-indexer/certs
+          mountPath: /wazuh-config
+        set-password-hash:
+          mountPath: /wazuh-config
+      main:
+        change-secret-file-owner:
+          mountPath: /wazuh-indexer-conf
+
+  # indexer-internal-users-conf:
+  #   enabled: true
+  #   readOnly: false
+  #   noMount: true
+  #   targetSelector:
+  #     indexer:
+  #       indexer:
+  #         mountPath: /usr/share/wazuh-indexer/opensearch-security/
+  #     main:
+  #       change-secret-file-owner:
+  #         mountPath: /wazuh-indexer-conf/opensearch-security/
+
+  indexer-certs:
+    enabled: true
+    readOnly: false
+    targetSelector:
       main:
         change-secret-file-owner:
           mountPath: /wazuh-indexer-certs
+      indexer:
+        indexer:
+          mountPath: /usr/share/wazuh-indexer/certs
   
   # WAZUH-DASHBOARD
   dashboard-config:
     enabled: true
+    readOnly: false
     defaultMode: "0600"
     targetSelector:
       main:
@@ -328,29 +475,49 @@ persistence:
 
   dashboard-custom:
     enabled: true
+    readOnly: false
     defaultMode: "0600"
     targetSelector:
       main:
         main:
           mountPath: "/usr/share/wazuh-dashboard/plugins/wazuh/public/assets/custom"
 
-  dashboard-certs:
+  dashboard-opensearch-conf:
     enabled: true
     readOnly: false
-    defaultMode: "0600"
     targetSelector:
       main:
         main:
-          mountPath: /usr/share/wazuh-dashboard/certs
+          mountPath: /wazuh-config
+        change-secret-file-owner:
+          mountPath: /wazuh-dashboard-conf
+
+  # dashboard-config-data:
+  #   enabled: true
+  #   readOnly: false
+  #   defaultMode: "0600"
+  #   targetSelector:
+  #     main:
+  #       main:
+  #         mountPath: /tmp-conf/data
+  #       change-secret-file-owner:
+  #         mountPath: /wazuh-dashboard-conf/data
+
+  dashboard-certs:
+    enabled: true
+    readOnly: false
+    targetSelector:
+      main:
         change-secret-file-owner:
           mountPath: /wazuh-dashboard-certs
+        main:
+          mountPath: /usr/share/wazuh-dashboard/certs
 
 # WAZUH-MANAGER
 
   manager-certs:
     enabled: true
     readOnly: false
-    defaultMode: "0600"
     targetSelector:
       manager:
         manager:
@@ -371,25 +538,29 @@ persistence:
   manager-etc:
     enabled: true
     readOnly: false
-    defaultMode: "0600"
+    defaultMode: "0400"
     targetSelector:
       manager:
         manager:
+          mountPath: /var/ossec/etc
+        codeserver:
           mountPath: /var/ossec/etc
 
   manager-logs:
     enabled: true
     readOnly: false
-    defaultMode: "0600"
+    # defaultMode: "0400"
     targetSelector:
       manager:
         manager:
+          mountPath: /var/ossec/logs
+        codeserver:
           mountPath: /var/ossec/logs
 
   manager-queue:
     enabled: true
     readOnly: false
-    defaultMode: "0600"
+    defaultMode: "0400"
     targetSelector:
       manager:
         manager:
@@ -398,7 +569,7 @@ persistence:
   manager-var-multigroups:
     enabled: true
     readOnly: false
-    defaultMode: "0600"
+    defaultMode: "0400"
     targetSelector:
       manager:
         manager:
@@ -407,7 +578,7 @@ persistence:
   manager-integrations:
     enabled: true
     readOnly: false
-    defaultMode: "0600"
+    defaultMode: "0400"
     targetSelector:
       manager:
         manager:
@@ -416,7 +587,7 @@ persistence:
   manager-active-response:
     enabled: true
     readOnly: false
-    defaultMode: "0600"
+    defaultMode: "0400"
     targetSelector:
       manager:
         manager:
@@ -425,7 +596,7 @@ persistence:
   manager-agentless:
     enabled: true
     readOnly: false
-    defaultMode: "0600"
+    defaultMode: "0400"
     targetSelector:
       manager:
         manager:
@@ -434,7 +605,7 @@ persistence:
   manager-wodles:
     enabled: true
     readOnly: false
-    defaultMode: "0600"
+    defaultMode: "0400"
     targetSelector:
       manager:
         manager:
@@ -443,7 +614,7 @@ persistence:
   manager-filebeat-etc:
     enabled: true
     readOnly: false
-    defaultMode: "0600"
+    defaultMode: "0400"
     targetSelector:
       manager:
         manager:
@@ -452,209 +623,222 @@ persistence:
   manager-filebeat-var:
     enabled: true
     readOnly: false
-    defaultMode: "0600"
+    defaultMode: "0400"
     targetSelector:
       manager:
         manager:
           mountPath: /var/lib/filebeat
 
+  # manager-conf:
+  #   enabled: true
+  #   readOnly: false
+  #   targetSelector:
+  #     manager:
+  #       manager:
+  #         mountPath: /wazuh-config-mount/etc/
+  #     main:
+  #       change-secret-file-owner:
+  #         mountPath: /wazuh-manager-conf
+
 # SECRET MOUNT
 # GENERAL
   root-ca:
     enabled: true
-    noMount: true
     type: secret
     objectName: root-ca
-    subPath: tls.crt
-    defaultMode: "0600"
     readOnly: false
+    items:
+      - key: tls.crt
+        path: root-ca.pem
     targetSelector:
       main:
         change-secret-file-owner:
-          mountPath: /bad-ownership-cert/root-ca.pem
+          mountPath: /bad-ownership-cert/general
 
 # WAZUH-INDEXER
-  indexer-key:
+  indexer-certs-tmp:
     enabled: true
-    noMount: true
     type: secret
     objectName: node-cert
-    subPath: tls.key
-    defaultMode: "0600"
     readOnly: false
+    items:
+      - key: tls.key
+        path: wazuh.indexer.key
+      - key: tls.crt
+        path: wazuh.indexer.pem
     targetSelector:
       main:
         change-secret-file-owner:
-          mountPath: /bad-ownership-cert/indexer/wazuh.indexer.key
+          mountPath: /bad-ownership-cert/indexer/node
 
-  indexer-cert:
+  admin-certs-tmp:
     enabled: true
-    noMount: true
-    type: secret
-    objectName: node-cert
-    subPath: tls.crt
-    defaultMode: "0600"
-    readOnly: false
-    targetSelector:
-      main:
-        change-secret-file-owner:
-          mountPath: /bad-ownership-cert/indexer/wazuh.indexer.pem
-
-  admin-cert:
-    enabled: true
-    noMount: false
     type: secret
     objectName: admin-cert
-    subPath: tls.crt
-    defaultMode: "0600"
-    readOnly: true
-    targetSelector:
-      main:
-        change-secret-file-owner:
-          mountPath: /bad-ownership-cert/indexer/admin.pem
-
-  admin-key:
-    enabled: true
-    noMount: true
-    type: secret
-    objectName: admin-cert
-    subPath: tls.key
-    defaultMode: "0600"
     readOnly: false
+    items:
+      - key: tls.key
+        path: admin-key.pem
+      - key: tls.crt
+        path: admin.pem
     targetSelector:
       main:
         change-secret-file-owner:
-          mountPath: /bad-ownership-cert/indexer/admin-key.pem
+          mountPath: /bad-ownership-cert/indexer/admin
 
-  indexer-opensearch-conf:
+  indexer-conf-secret:
     enabled: true
-    noMount: true
     type: configmap
     objectName: indexer
-    subPath: wazuh.indexer.yml
-    defaultMode: "0400"
-    readOnly: true
+    readOnly: false
+    items:
+      - key: wazuh.indexer.yml
+        path: opensearch.yml
+      - key: internal_users.yml
+        path: internal_users.yml
     targetSelector:
-      indexer:
-        indexer:
-          mountPath: /usr/share/wazuh-indexer/opensearch.yml
+      main:
+        change-secret-file-owner:
+          mountPath: /bad-ownership-conf/indexer
 
-  indexer-internal-users-conf:
-    enabled: true
-    noMount: true
-    type: secret
-    objectName: config
-    subPath: internal_users.yml
-    defaultMode: "0400"
-    readOnly: true
-    targetSelector:
-      indexer:
-        indexer:
-          mountPath: /usr/share/wazuh-indexer/opensearch-security/internal_users.yml
+  # indexer-internal-users-conf-secret:
+  #   enabled: true
+  #   type: secret
+  #   objectName: config
+  #   subPath: internal_users.yml
+  #   defaultMode: "0600"
+  #   readOnly: false
+  #   targetSelector:
+  #       indexer:
+  #         indexer:
+  #           mountPath: /usr/share/wazuh-indexer/opensearch-security/internal_users.yml
+    # targetSelector:
+    #   main:
+    #     change-secret-file-owner:
+    #       mountPath: /bad-ownership-conf/indexer/internal_users.yml
 
 # WAZUH-DASHBOARD
-  dashboard-pem:
+  dashboard-certs-tmp:
     enabled: true
-    noMount: true
     type: secret
     objectName: dashboard-cert
-    subPath: tls.crt
-    defaultMode: "0600"
     readOnly: false
+    items:
+      - key: tls.key
+        path: wazuh-dashboard-key.pem
+      - key: tls.crt
+        path: wazuh-dashboard.pem
     targetSelector:
       main:
         change-secret-file-owner:
-          mountPath: /bad-ownership-cert/dashboard/wazuh-dashboard.pem
+          mountPath: /bad-ownership-cert/dashboard
 
-  dashboard-key:
+  # dashboard-key-tmp:
+  #   enabled: true
+  #   noMount: true
+  #   type: secret
+  #   objectName: dashboard-cert
+  #   readOnly: false
+  #   subPath: tls.key
+  #   targetSelector:
+  #     main:
+  #       change-secret-file-owner:
+  #         mountPath: /bad-ownership-cert/dashboard/wazuh-dashboard-key.pem
+          
+  dashboard-opensearch-conf-secret:
     enabled: true
-    noMount: true
-    type: secret
-    objectName: dashboard-cert
-    subPath: tls.key
-    defaultMode: "0600"
-    readOnly: false
-    targetSelector:
-      main:
-        change-secret-file-owner:
-          mountPath: /bad-ownership-cert/dashboard/wazuh-dashboard-key.pem
-
-  dashboard-opensearch-conf:
-    enabled: true
-    noMount: true
     type: configmap
     objectName: dashboard
-    subPath: opensearch_dashboards.yml
-    defaultMode: "0400"
-    readOnly: true
+    readOnly: false
+    items:
+      - key: wazuh.yml
+        path: wazuh.yml
+      - key: opensearch_dashboards.yml
+        path: opensearch_dashboards.yml
+    # targetSelector:
+    #     main:
+    #       main:
+    #         mountPath: /usr/share/wazuh-dashboard/config/opensearch_dashboards.yml
     targetSelector:
       main:
-        main:
-          mountPath: /usr/share/wazuh-dashboard/config/opensearch_dashboards.yml
+        change-secret-file-owner:
+          mountPath: /bad-ownership-conf/dashboard
 
-  dashboard-conf:
-    enabled: true
-    noMount: true
-    type: secret
-    objectName: config
-    subPath: wazuh.yml
-    defaultMode: "0400"
-    readOnly: true
-    targetSelector:
-      main:
-        main:
-          mountPath: /usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml
+  # dashboard-conf-secret:
+  #   enabled: true
+  #   type: secret
+  #   objectName: config
+  #   subPath: wazuh.yml
+  #   defaultMode: "0432"
+  #   readOnly: false
+  #   targetSelector:
+  #       main:
+  #         main:
+  #           mountPath: /usr/share/wazuh-dashboard/data/wazuh/config/wazuh.yml
+    # targetSelector:
+    #   main:
+    #     change-secret-file-owner:
+    #       mountPath: /bad-ownership-conf/dashboard/wazuh.yml
 
 # WAZUH-MANAGER
-  manager-pem:
+  manager-certs-tmp:
     enabled: true
-    noMount: true
     type: secret
     objectName: filebeat-cert
-    subPath: tls.crt
-    defaultMode: "0600"
     readOnly: false
+    items:
+      - key: tls.key
+        path: filebeat.key
+      - key: tls.crt
+        path: filebeat.pem
     targetSelector:
       main:
         change-secret-file-owner:
-          mountPath: /bad-ownership-cert/manager/filebeat.pem
+          mountPath: /bad-ownership-cert/manager
 
-  manager-key:
+  manager-conf-secret:
     enabled: true
-    noMount: true
-    type: secret
-    objectName: filebeat-cert
-    subPath: tls.key
-    defaultMode: "0600"
-    readOnly: false
-    targetSelector:
-      main:
-        change-secret-file-owner:
-          mountPath: /bad-ownership-cert/manager/filebeat.key
-
-  manager-conf:
-    enabled: true
-    noMount: true
     type: configmap
     objectName: manager
-    subPath: wazuh_manager.conf
-    defaultMode: "0600"
     readOnly: false
+    subPath: wazuh_manager.conf
     targetSelector:
-      manager:
         manager:
-          mountPath: /wazuh-config-mount/etc/ossec.conf
+          manager:
+            mountPath: /wazuh-config-mount/etc/ossec.conf
+      # main:
+      #   change-secret-file-owner:
+      #     mountPath: /bad-ownership-conf/manager
 
 # SECURITY
 securityContext:
   container:
+    # PUID: 1000
+    # USER_ID: 1000
+    # UID: 1000
+    # PGID: 1000
+    # GROUP_ID: 1000
+    # GID: 1000
     runAsGroup: 1000
     runAsUser: 1000
     runAsNonRoot: true
     readOnlyRootFilesystem: false
-  pod:
-    fsGroup: 1000
+    pod:
+      fsGroup: 1000
 
 portal:
   open:
     enabled: false
+
+# addons:
+#   codeserver:
+#     enabled: true
+#     envList: []
+#     ingress:
+#       enabled: false
+#     service:
+#       loadBalancerIP: 192.168.1.12
+#       ports:
+#         codeserver:
+#           port: 80
+#       type: LoadBalancer
